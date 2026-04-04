@@ -5,7 +5,10 @@
         "max_width": 895,
         "max_beam": 500,
         "target_draft": 3,
-        "number_of_hulls": 3
+        "number_of_hulls": 3,
+        "displacement_range": [0.9, 0.95],
+        "min_hull_spacing": 100,
+        "max_side_hull_length": 1200
     },
     "component_boxes": [
         {
