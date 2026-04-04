@@ -1,0 +1,30 @@
+{
+    "project_name": "Hull_001",
+    "hull_constraints": {
+        "max_length": 1795,
+        "max_width": 895,
+        "max_beam": 500,
+        "target_draft": 3,
+        "number_of_hulls": 3
+    },
+    "component_boxes": [
+        {
+            "name": "Battery Pack",
+            "dimensions": [500, 300, 200],
+            "mass": 1000,
+            "center_of_mass": [0, 0, 0]
+        },
+        {
+            "name": "PDU",
+            "dimensions": [500, 300, 200],
+            "mass": 1000,
+            "center_of_mass": [0, 0, 0]
+        },
+        {
+            "name": "Compute",
+            "dimensions": [500, 300, 200],
+            "mass": 1000,
+            "center_of_mass": [0, 0, 0]
+        }
+    ]
+}
