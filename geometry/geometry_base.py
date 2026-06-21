@@ -72,7 +72,7 @@ def generate_keel_profile(L, T, z1_factor=0.0, z2_factor=0.2, num_points=20):
         keel_points.append((x, z))
         
     return keel_points
-    
+
 def generate_updated_station(y_wl, z_kjol, y1_factor=0.5, z1_factor=0.0, y2_factor=1.0, z2_factor=0.5, num_points=15):
     """
     Genererer (Y, Z) for et spant, tilpasset lokal kjølhøyde (z_kjol) og bredde (y_wl).
@@ -103,7 +103,7 @@ def generate_updated_station(y_wl, z_kjol, y1_factor=0.5, z1_factor=0.0, y2_fact
         
     return station_points
 
-    def generate_3d_hull_mesh(L, B_max, T, num_stations=20, num_points_per_station=15):
+def generate_3d_hull_mesh(L, B_max, T, num_stations=20, num_points_per_station=15):
     """
     Hovedfunksjon for å generere et strukturert 3D-punktnettverk for forskipet.
     """
@@ -133,3 +133,42 @@ def generate_updated_station(y_wl, z_kjol, y1_factor=0.5, z1_factor=0.0, y2_fact
         hull_mesh.append({'X': x_local, 'Points': station_points})
         
     return hull_mesh
+
+def generate_complete_hull(L, B_max, T, num_stations=20, num_points_per_station=15):
+    """
+    Genererer et komplett, symmetrisk double-ender skrog (både for- og akterskip).
+    Returnerer en liste med stasjoner sortert fra akter til forut.
+    """
+    # 1. Generer først rutenettet for forskipet (X fra 0 til L/2)
+    # (Vi bruker loopen vi snakket om i sted)
+    forebody_mesh = []
+    
+    # Vi henter master-kurvene for kjøl og vannlinje
+    keel_profile = generate_keel_profile(L, T, num_points=num_stations)
+    waterline = generate_waterline(L, B_max, 0.5, 1.0, 0.5, 0.5, num_points=num_stations)
+    
+    for i in range(num_stations):
+        x_local = waterline[i][0]
+        y_wl = waterline[i][1]
+        z_kjol = keel_profile[i][1]
+        
+        station_points = generate_updated_station(y_wl, z_kjol, num_points=num_points_per_station)
+        forebody_mesh.append({'X': x_local, 'Points': station_points})
+    
+    # 2. Generer akterskipet ved å speile forskipet
+    aftbody_mesh = []
+    
+    # Vi looper baklengs gjennom forskipet (unntatt midtspantet på i=0 for å unngå duplikat)
+    for station in reversed(forebody_mesh[1:]):
+        x_aft = -station['X']  # Inverterer X-koordinaten
+        
+        # Punktene (Y, Z) forblir de samme siden skroget er symmetrisk om midtspantet
+        aft_points = station['Points'].copy() 
+        
+        aftbody_mesh.append({'X': x_aft, 'Points': aft_points})
+        
+    # 3. Sveis sammen akterskipet og forskipet i riktig rekkefølge:
+    # [Akterut --> Midtskip --> Forut]
+    complete_hull_mesh = aftbody_mesh + forebody_mesh
+    
+    return complete_hull_mesh
