@@ -172,3 +172,4 @@ def generate_complete_hull(L, B_max, T, num_stations=20, num_points_per_station=
     complete_hull_mesh = aftbody_mesh + forebody_mesh
     
     return complete_hull_mesh
+
