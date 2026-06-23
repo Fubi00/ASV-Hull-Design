@@ -87,3 +87,32 @@ def get_total_wave_resistance(hull_mesh, speed, configurations=None):
         
     R_w = (4.0 * rho * g**2 / (np.pi * speed**2)) * total_integral
     return max(0.0, R_w)
+
+def calculate_viscous_resistance(hull_mesh, speed):
+    """
+    Beregner den viskøse motstanden (friksjon) basert på våt overflate og ITTC-57.
+    """
+    # Enkel estimering av våt overflate (Wetted Surface Area - WSA)
+    wsa = 0.0
+    dx = abs(hull_mesh[1]['X'] - hull_mesh[0]['X'])
+    for station in hull_mesh:
+        # Integrer buelengden av spantet under vann (forenklet anslag for maks bredde x lengde)
+        y_points = [p[0] for p in station['Points']]
+        wsa += 2 * max(y_points) * dx
+        
+    if speed <= 0.1:
+        return 0.0
+        
+    rho = 1025.0
+    nu = 1.188e-6 # Kinematisk viskositet for sjøvann ved ca 15 grader
+    L = abs(hull_mesh[-1]['X'] - hull_mesh[0]['X'])
+    
+    # Reynolds nummer
+    Rn = (speed * L) / nu
+    
+    # ITTC-1957 friksjonskoeffisient-formel
+    Cf = 0.075 / ((np.log10(Rn) - 2) ** 2)
+    
+    # Friksjonsmotstand i Newton
+    R_f = 0.5 * rho * (speed ** 2) * wsa * Cf
+    return R_f

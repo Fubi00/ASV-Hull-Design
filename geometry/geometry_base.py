@@ -64,7 +64,15 @@ def generate_complete_hull(config, num_stations=20, num_points_per_station=15):
     B_max = config['B_max']
     T = config['T']
     
-    keel_profile = generate_keel_profile(L, T, config['z1_k'], config['z2_k'], num_stations)
+    # OPPDATERT: Her sender vi nå med alle 4 faktorene til den nye kjølprofil-funksjonen
+    keel_profile = generate_keel_profile(
+        L, T, 
+        config['x1_k'], config['z1_k'], 
+        config['x2_k'], config['z2_k'], 
+        num_stations
+    )
+    
+    # Vannlinjen bruker de samme faktorene som før
     waterline = generate_waterline(L, B_max, config['x1_w'], config['y1_w'], config['x2_w'], config['y2_w'], num_stations)
     
     forebody_mesh = []
