@@ -1,10 +1,20 @@
 # geometry/geometry_base.py
 
-def generate_keel_profile(L, T, z1_factor, z2_factor, num_points):
+def generate_keel_profile(L, T, x1_factor, z1_factor, x2_factor, z2_factor, num_points):
+    """
+    Genererer (X, Z) for kjøllinjen med full geometrisk frihet.
+    Lar kontrollpunktene flytte seg fritt i både X- og Z-retning.
+    """
     half_L = L / 2
+    
+    # P0: Midtskipet (Alltid på bunnen: X=0, Z=-T)
     p0 = (0.0, -T)
-    p1 = (0.25 * half_L, -T + (z1_factor * T))
-    p2 = (0.75 * half_L, -T + (z2_factor * T))
+    
+    # P1 og P2: Fulle variabler. Algoritmen styrer både lengdeposisjon og høyde.
+    p1 = (x1_factor * half_L, -T + (z1_factor * T))
+    p2 = (x2_factor * half_L, -T + (z2_factor * T))
+    
+    # P3: Baugtuppen (Alltid i vannlinjen: X=half_L, Z=0)
     p3 = (half_L, 0.0)
     
     points = []
@@ -13,6 +23,7 @@ def generate_keel_profile(L, T, z1_factor, z2_factor, num_points):
         x = (1-t)**3 * p0[0] + 3*(1-t)**2 * t * p1[0] + 3*(1-t) * t**2 * p2[0] + t**3 * p3[0]
         z = (1-t)**3 * p0[1] + 3*(1-t)**2 * t * p1[1] + 3*(1-t) * t**2 * p2[1] + t**3 * p3[1]
         points.append((x, z))
+        
     return points
 
 def generate_waterline(L, B_max, x1_factor, y1_factor, x2_factor, y2_factor, num_points):
