@@ -1,83 +1,89 @@
 import numpy as np
 
-def calculate_michell_resistance(hull_mesh, speed, separation=0.0, is_multihull=False):
+def calculate_michell_components(hull_mesh, speed, lambda_val):
     """
-    Beregner en tilnærming av bølgemotstand basert på Michells integral.
-    hull_mesh: Matrisen fra geometry_base.
-    speed: Hastighet i m/s.
-    separation: Senter-til-senter avstand (Y) hvis katamaran/trimaran.
+    Beregner de frie bølgekomponentene I og J for en gitt lambda-verdi.
+    Dette er selve kjernen i Michells tynnskrogteori.
     """
-    if speed <= 0.1:
-        return 0.0
-        
     g = 9.81
-    rho = 1025.0 # Sjøvann tetthet
+    k0 = g / (speed ** 2)
+    k = k0 * lambda_val ** 2  # Lokalt bølgetall for denne bølgevinkelen
     
     num_stations = len(hull_mesh)
-    num_waterlines = len(hull_mesh[0]['Points'])
+    num_wl = len(hull_mesh[0]['Points'])
     
-    # Finn dX (avstanden mellom stasjonene)
-    dx = abs(hull_mesh[1]['X'] - hull_mesh[0]['X'])
-    
-    # Integral-koeffisienter (I og J)
     I_sum = 0.0
     J_sum = 0.0
     
-    # Forenklet numerisk integrasjon over skrogoverflaten
+    # Gå gjennom skrogoverflaten stasjon for stasjon
     for i in range(1, num_stations - 1):
-        for j in range(num_waterlines):
-            # Hent lokal dybde (Z) og breddeendring (dY)
+        x = hull_mesh[i]['X']
+        
+        # Finn dX (avstand mellom nabostasjoner)
+        dx = abs(hull_mesh[i+1]['X'] - hull_mesh[i-1]['X']) / 2.0
+        
+        for j in range(1, num_wl):
             z = hull_mesh[i]['Points'][j][1]
+            dz = abs(hull_mesh[i]['Points'][j][1] - hull_mesh[i]['Points'][j-1][1])
             
-            # Sentral differanse for den deriverte dY/dX
-            dy_dx = (hull_mesh[i+1]['Points'][j][0] - hull_mesh[i-1]['Points'][j][0]) / (2 * dx)
+            # Sentraldifferanse for dY/dX (breddeendring langs skroget)
+            dy_dx = (hull_mesh[i+1]['Points'][j][0] - hull_mesh[i-1]['Points'][j][0]) / (2.0 * dx)
             
-            # Bølgetall-komponent (k) basert på hastighet
-            k0 = g / (speed ** 2)
+            # Integrandens bidrag (dempes eksponensielt med dybden z)
+            # Vi bruker lambda_val for å korrigere for vinkeleffekten av bølgen
+            weight = np.exp(k * z / lambda_val) * dy_dx * dx * dz
             
-            # Bidrag til integranden (Froude-avhengig)
-            weight = np.exp(k0 * z) * dy_dx * dx
+            # Symmetrisk integrasjon om X-aksen
+            I_sum += weight * np.cos(k * x / lambda_val)
+            J_sum += weight * np.sin(k * x / lambda_val)
             
-            # Forenklet integrasjons-kjerne
-            I_sum += weight * np.cos(k0 * hull_mesh[i]['X'])
-            J_sum += weight * np.sin(k0 * hull_mesh[i]['X'])
-            
-    # Grunnleggende bølgemotstand for ett skrog
-    R_w_single = (4 * rho * g**2 / (np.pi * speed**2)) * (I_sum**2 + J_sum**2) * 0.01 # Skaleringsfaktor for numerisk oppløsning
-    
-    # --- BØLGEINTERFERENS (Flerskrog-logikk) ---
-    if is_multihull and separation > 0:
-        # Interferensfaktor: Bølgene treffer hverandre basert på avstand (separation) og hastighet
-        k0 = g / (speed ** 2)
-        interference_factor = 1 + np.cos(2 * k0 * separation)
-        return R_w_single * interference_factor * 2 # Ganger med 2 for to skrog + interferens
-        
-    return R_w_single
+    return I_sum, J_sum
 
-def calculate_viscous_resistance(hull_mesh, speed):
+def get_total_wave_resistance(hull_mesh, speed, configurations=None):
     """
-    Beregner den viskøse motstanden (friksjon) basert på våt overflate og ITTC-57.
+    Integrerer over lambda-spekteret for å finne total bølgemotstand (Rw).
+    Støtter Monohull, Katamaran og Trimaran via konfigurasjonsfilen.
     """
-    # Enkel estimering av våt overflate (Wetted Surface Area - WSA)
-    # I et fullstendig system regner du dette nøyaktig ut fra mesh-firkantene
-    wsa = 0.0
-    dx = abs(hull_mesh[1]['X'] - hull_mesh[0]['X'])
-    for station in hull_mesh:
-        # Integrer buelengden av spantet under vann
-        y_points = [p[0] for p in station['Points']]
-        wsa += 2 * max(y_points) * dx # Forenklet anslag
-        
-    if speed <= 0.1:
+    if speed <= 0.2:
         return 0.0
         
+    g = 9.81
     rho = 1025.0
-    nu = 1.188e-6 # Kinematisk viskositet for vann
-    L = abs(hull_mesh[-1]['X'] - hull_mesh[0]['X'])
     
-    # Reynolds nummer
-    Rn = (speed * L) / nu
-    # ITTC-1957 friksjonskoeffisient
-    Cf = 0.075 / ((np.log10(Rn) - 2) ** 2)
+    # Standard konfigurasjon hvis ingenting er oppgitt (Monohull)
+    if configurations is None:
+        configurations = {'type': 'mono', 'separation': 0.0}
+        
+    # Numerisk integrasjon over lambda (fra 1.0 til 5.0 med 40 steg)
+    lambda_steps = 40
+    lambda_array = np.linspace(1.001, 5.0, lambda_steps)
+    d_lambda = (5.0 - 1.001) / (lambda_steps - 1)
     
-    R_f = 0.5 * rho * (speed ** 2) * wsa * Cf
-    return R_f
+    total_integral = 0.0
+    
+    for lambda_val in lambda_array:
+        I, J = calculate_michell_components(hull_mesh, speed, lambda_val)
+        hull_wave_energy = I**2 + J**2
+        
+        # --- FLERSKROG / INTERFERENS LOGIKK ---
+        interference = 1.0
+        k0 = g / (speed ** 2)
+        
+        if configurations['type'] == 'katamaran':
+            # Katamaran har to like skrog separert med avstand S
+            s = configurations['separation']
+            # Interferensfaktor basert på fasingen mellom de to skrogene
+            interference = 2 * (1 + np.cos(2 * k0 * lambda_val * s))
+            
+        elif configurations['type'] == 'trimaran':
+            # Forenklet trimaran: Hovedskrog + 2 sideskrog (antatt like for nå)
+            s = configurations['separation']
+            # Interferens mellom senterskrog og sideskrog
+            interference = 1 + 4 * np.cos(k0 * lambda_val * s) + 4 * (np.cos(k0 * lambda_val * s)**2)
+            
+        # Michell integrasjonskjerne
+        kernel = (lambda_val ** 2) / np.sqrt(lambda_val ** 2 - 1)
+        total_integral += kernel * hull_wave_energy * interference * d_lambda
+        
+    R_w = (4.0 * rho * g**2 / (np.pi * speed**2)) * total_integral
+    return max(0.0, R_w)
