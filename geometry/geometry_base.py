@@ -1,93 +1,98 @@
 # geometry/geometry_base.py
+import numpy as np
 
-def generate_keel_profile(L, T, x1_factor, z1_factor, x2_factor, z2_factor, num_points):
+def get_bezier_value(p0, p1, p2, p3, t):
+    """Beregner ett enkelt punkt langs en kubisk Bézier-kurve for en gitt t."""
+    return (1 - t)**3 * p0 + 3 * (1 - t)**2 * t * p1 + 3 * (1 - t) * t**2 * p2 + t**3 * p3
+
+def find_t_for_x(p0_x, p1_x, p2_x, p3_x, target_x, tol=1e-5):
     """
-    Genererer (X, Z) for kjøllinjen med full geometrisk frihet.
-    Lar kontrollpunktene flytte seg fritt i både X- og Z-retning.
+    Bruker binærsøk til å finne nøyaktig hvilken t-verdi som gir target_x.
+    Dette fungerer fordi X(t) alltid er monotont stigende fra midtskip til baug.
     """
-    half_L = L / 2
-    
-    # P0: Midtskipet (Alltid på bunnen: X=0, Z=-T)
-    p0 = (0.0, -T)
-    
-    # P1 og P2: Fulle variabler. Algoritmen styrer både lengdeposisjon og høyde.
-    p1 = (x1_factor * half_L, -T + (z1_factor * T))
-    p2 = (x2_factor * half_L, -T + (z2_factor * T))
-    
-    # P3: Baugtuppen (Alltid i vannlinjen: X=half_L, Z=0)
-    p3 = (half_L, 0.0)
-    
-    points = []
-    for i in range(num_points):
-        t = i / (num_points - 1)
-        x = (1-t)**3 * p0[0] + 3*(1-t)**2 * t * p1[0] + 3*(1-t) * t**2 * p2[0] + t**3 * p3[0]
-        z = (1-t)**3 * p0[1] + 3*(1-t)**2 * t * p1[1] + 3*(1-t) * t**2 * p2[1] + t**3 * p3[1]
-        points.append((x, z))
+    low, high = 0.0, 1.0
+    for _ in range(30): # Maks 30 iterasjoner gir ekstremt høy presisjon
+        mid = (low + high) / 2.0
+        x_val = get_bezier_value(p0_x, p1_x, p2_x, p3_x, mid)
         
-    return points
+        if abs(x_val - target_x) < tol:
+            return mid
+        if x_val < target_x:
+            low = mid
+        else:
+            high = mid
+    return (low + high) / 2.0
 
-def generate_waterline(L, B_max, x1_factor, y1_factor, x2_factor, y2_factor, num_points):
+def evaluate_waterline_at_x(x_target, L, B_max, config):
+    """Finner nøyaktig halvbredde Y for en spesifikk X-posisjon."""
     half_L = L / 2
     half_B = B_max / 2
-    p0 = (0.0, half_B)
-    p1 = (x1_factor * half_L, y1_factor * half_B)
-    p2 = (x2_factor * half_L, y2_factor * half_B)
-    p3 = (half_L, 0.0)
     
-    points = []
-    for i in range(num_points):
-        t = i / (num_points - 1)
-        x = (1-t)**3 * p0[0] + 3*(1-t)**2 * t * p1[0] + 3*(1-t) * t**2 * p2[0] + t**3 * p3[0]
-        y = (1-t)**3 * p0[1] + 3*(1-t)**2 * t * p1[1] + 3*(1-t) * t**2 * p2[1] + t**3 * p3[1]
-        points.append((x, y))
-    return points
+    p0_x, p0_y = 0.0, half_B
+    p1_x, p1_y = config['x1_w'] * half_L, config['y1_w'] * half_B
+    p2_x, p2_y = config['x2_w'] * half_L, config['y2_w'] * half_B
+    p3_x, p3_y = half_L, 0.0
+    
+    t = find_t_for_x(p0_x, p1_x, p2_x, p3_x, x_target)
+    return get_bezier_value(p0_y, p1_y, p2_y, p3_y, t)
 
-def generate_updated_station(y_wl, z_kjol, y1_factor, z1_factor, y2_factor, z2_factor, num_points):
+def evaluate_keel_at_x(x_target, L, T, config):
+    """Finner nøyaktig kjøldybde Z for en spesifikk X-posisjon."""
+    half_L = L / 2
+    
+    p0_x, p0_z = 0.0, -T
+    p1_x, p1_z = config['x1_k'] * half_L, -T + (config['z1_k'] * T)
+    p2_x, p2_z = config['x2_k'] * half_L, -T + (config['z2_k'] * T)
+    p3_x, p3_z = half_L, 0.0
+    
+    t = find_t_for_x(p0_x, p1_x, p2_x, p3_x, x_target)
+    return get_bezier_value(p0_z, p1_z, p2_z, p3_z, t)
+
+def generate_updated_station(y_wl, z_kjol, config, num_points):
+    """Genererer (Y, Z) for et spant basert på lokal bredde og kjøldybde."""
     p0 = (0.0, z_kjol)
     p3 = (y_wl, 0.0)
     h_local = abs(z_kjol)
     
-    p1 = (y1_factor * y_wl, z_kjol + (z1_factor * h_local))
-    p2 = (y2_factor * y_wl, z_kjol + (z2_factor * h_local))
+    p1 = (config['y1_s'] * y_wl, z_kjol + (config['z1_s'] * h_local))
+    p2 = (config['y2_s'] * y_wl, z_kjol + (config['z2_s'] * h_local))
     
     points = []
     for i in range(num_points):
         t = i / (num_points - 1)
-        y = (1-t)**3 * p0[0] + 3*(1-t)**2 * t * p1[0] + 3*(1-t) * t**2 * p2[0] + t**3 * p3[0]
-        z = (1-t)**3 * p0[1] + 3*(1-t)**2 * t * p1[1] + 3*(1-t) * t**2 * p2[1] + t**3 * p3[1]
+        y = get_bezier_value(p0[0], p1[0], p2[0], p3[0], t)
+        z = get_bezier_value(p0[1], p1[1], p2[1], p3[1], t)
         points.append((y, z))
     return points
 
-def generate_complete_hull(config, num_stations=20, num_points_per_station=15):
-    """Tar inn en konfigurasjons-ordbok (fra JSON) og lager skroget"""
+def generate_complete_hull(config, num_stations=40, num_points_per_station=15):
+    """
+    Genererer et komplett, lineært strukturert 3D-skrog.
+    Stasjonene er garantert jevnt fordelt langs X-aksen.
+    """
     L = config['L']
     B_max = config['B_max']
     T = config['T']
-    
-    # OPPDATERT: Her sender vi nå med alle 4 faktorene til den nye kjølprofil-funksjonen
-    keel_profile = generate_keel_profile(
-        L, T, 
-        config['x1_k'], config['z1_k'], 
-        config['x2_k'], config['z2_k'], 
-        num_stations
-    )
-    
-    # Vannlinjen bruker de samme faktorene som før
-    waterline = generate_waterline(L, B_max, config['x1_w'], config['y1_w'], config['x2_w'], config['y2_w'], num_stations)
+    half_L = L / 2
     
     forebody_mesh = []
-    for i in range(num_stations):
-        x_local = waterline[i][0]
-        y_wl = waterline[i][1]
-        z_kjol = keel_profile[i][1]
-        
-        station_points = generate_updated_station(
-            y_wl, z_kjol, 
-            config['y1_s'], config['z1_s'], config['y2_s'], config['z2_s'], 
-            num_points_per_station
-        )
-        forebody_mesh.append({'X': x_local, 'Points': station_points})
     
+    # Lag en helt lineær fordeling av X-stasjoner fra midtskipet (0) til baugen (L/2)
+    x_stations = np.linspace(0.0, half_L, num_stations)
+    
+    for x_local in x_stations:
+        # Hvis vi er helt i baugtuppen, tvinger vi verdiene til null for å lukke skroget helt rent
+        if abs(x_local - half_L) < 1e-5:
+            y_wl = 0.0
+            z_kjol = 0.0
+        else:
+            y_wl = evaluate_waterline_at_x(x_local, L, B_max, config)
+            z_kjol = evaluate_keel_at_x(x_local, L, T, config)
+            
+        station_points = generate_updated_station(y_wl, z_kjol, config, num_points_per_station)
+        forebody_mesh.append({'X': x_local, 'Points': station_points})
+        
+    # Speil forskipet for å lage akterskipet (X blir negativ)
     aftbody_mesh = []
     for station in reversed(forebody_mesh[1:]):
         aftbody_mesh.append({'X': -station['X'], 'Points': station['Points'].copy()})
