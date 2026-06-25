@@ -104,15 +104,14 @@ R_total_global = R_w_global + R_f_main + (R_f_side * (num_hulls - 1))
 # ==============================================================================
 # 📐 NY FUNKSJON FOR DET SPESIFISERTE 3x2 MATRISE-PLOTTET PER SKROG
 # ==============================================================================
-def create_vessel_3x2_subplot(mesh_data, props, R_f, name, is_main_hull=False):
+def create_vessel_3x2_subplot(mesh_data, props, R_f, name, max_L_total, max_B_total, is_main_hull=False):
     """
-    Oppretter et perfekt opplinjet 3x2 plotnettverk for ett skrog:
-    - (1,1): Data tekstfyll (Helt rent, uten akser)
-    - (2,1): Frontvisning (Spant) -> Bredde vs Dybde
-    - (1,2): Toppvisning (Vannlinjer, rowspan=2) -> Lengde vs Bredde
-    - (3,1): Sidevisning (Profil, colspan=2) -> Lengde vs Dybde
+    Oppretter et rotert, proporsjonalt 3x2 plotnettverk låst til 110% av makskravene:
+    - (1,1): Data tekstfyll
+    - (2,1): Frontvisning (Spant) -> Horisontal=Bredde, Vertikal=Dybde
+    - (1,2): Toppvisning ROTERT (rowspan=2) -> Horisontal=Bredde, Vertikal=Lengde
+    - (3,1): Sidevisning (Profil, colspan=2) -> Horisontal=Lengde, Vertikal=Dybde
     """
-    # VIKTIG: Kun 4 titler fordi det bare er 4 aktive delplott!
     fig = make_subplots(
         rows=3, cols=2,
         specs=[
@@ -122,19 +121,26 @@ def create_vessel_3x2_subplot(mesh_data, props, R_f, name, is_main_hull=False):
         ],
         subplot_titles=(
             f"📊 Data: {name}", 
-            "Toppvisning (Vannlinjer)", 
+            "Toppvisning (Vannlinjer) - Rotert", 
             "Frontvisning (Spant)", 
             "Sidevisning (Profil)"
         ),
         horizontal_spacing=0.10,
-        vertical_spacing=0.10
+        vertical_spacing=0.12
     )
     
     if mesh_data is None:
         return fig
         
-    # --- 1. RAD 1, KOLONNE 1: RENT DATA-FELT ---
-    battery_text = f"Batteriboks: {'✅ OK' if props['fits_battery'] else '❌ KRÆSJ'}" if is_main_hull else "Batteriboks: N/A"
+    # ==============================================================================
+    # 📐 BEREGN FASTE RAMMER (110% AV MAKSIMALKRAV)
+    # ==============================================================================
+    x_limit = 1.1 * (max_L_total / 2)  # Siden skroget er sentrert om X=0
+    y_limit = 1.1 * (max_B_total / 2)  # Siden skroget er sentrert om Y=0
+    z_limit = -1.1 * 0.5               # 0.5m er den absolutte maksgrensen for dypgående i appen
+        
+    # --- 1. RAD 1, KOLONNE 1: DATA ANNOTATION ---
+    battery_text = f"🔋 Batteriboks: {'✅ OK' if props['fits_battery'] else '❌ KRÆSJ'}" if is_main_hull else "Batteriboks: N/A"
     
     text_info = (
         f"<b>Oppdrift:</b> {props['displacement']:.1f} kg<br>"
@@ -142,25 +148,23 @@ def create_vessel_3x2_subplot(mesh_data, props, R_f, name, is_main_hull=False):
         f"<b>Friksjon:</b> {R_f:.2f} N<br>"
         f"<b>{battery_text}</b>"
     )
-    
     fig.add_annotation(
-        dict(x=0.05, y=0.5, showarrow=False, text=text_info, 
-             font=dict(size=14, color="black"),
+        dict(x=0.05, y=0.5, showarrow=False, text=text_info, font=dict(size=14, color="black"),
              xref="x domain", yref="y domain", align="left")
     )
-    
-    # Fjern absolutt alt av akser, linjer og rammer fra dataruten så den blir helt hvit
     fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, showline=False, row=1, col=1)
     fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, showline=False, row=1, col=1)
 
     num_points = len(mesh_data[0]['Points'])
     
-    # --- 2. RAD 1 & 2, KOLONNE 2: TOPPVISNING (X vs Y) ---
+    # --- 2. RAD 1 & 2, KOLONNE 2: TOPPVISNING ROTERT (Bredde på X, Lengde på Y) ---
     for p_idx in range(num_points):
         x_lines = [st_d['X'] for st_d in mesh_data]
         y_lines = [st_d['Points'][p_idx][0] for st_d in mesh_data]
-        fig.add_trace(go.Scatter(x=x_lines, y=y_lines, mode='lines', line=dict(color='blue', width=1), showlegend=False), row=1, col=2)
-        fig.add_trace(go.Scatter(x=x_lines, y=[-y for y in y_lines], mode='lines', line=dict(color='blue', width=1), showlegend=False), row=1, col=2)
+        
+        # ROTASJON: Vi setter y_lines (bredde) på x-aksen, og x_lines (lengde) på y-aksen
+        fig.add_trace(go.Scatter(x=y_lines, y=x_lines, mode='lines', line=dict(color='blue', width=1), showlegend=False), row=1, col=2)
+        fig.add_trace(go.Scatter(x=[-y for y in y_lines], y=x_lines, mode='lines', line=dict(color='blue', width=1), showlegend=False), row=1, col=2)
 
     # --- 3. RAD 2, KOLONNE 1: FRONTVISNING (Y vs Z) ---
     for st_d in mesh_data:
@@ -176,23 +180,21 @@ def create_vessel_3x2_subplot(mesh_data, props, R_f, name, is_main_hull=False):
         fig.add_trace(go.Scatter(x=x_lines, y=z_lines, mode='lines', line=dict(color='green', width=1), showlegend=False), row=3, col=1)
         
     # ==============================================================================
-    # 📐 MATEMATISK SYNKRONISERING AV AKSER OG PROPORSJONER
+    # 🔒 SETTING AV 110% GRENSER OGSÅ LÅSING AV ASPEKTRATIO (1:1 METER)
     # ==============================================================================
-    # Sidevisningen (Axe 4) er master for fysiske proporsjoner (1:1 meter-skala på skjermen)
-    fig.update_yaxes(scaleanchor="x4", scaleratio=1, row=3, col=1)
+    # Rute 1,2 (Topp rotert): Horisontal = Bredde (Y), Vertikal = Lengde (X)
+    fig.update_xaxes(range=[-y_limit, y_limit], row=1, col=2)
+    fig.update_yaxes(scaleanchor="x2", scaleratio=1, range=[-x_limit, x_limit], row=1, col=2)
     
-    # KRAV 1: Samme lengde (X) i Top og Side
-    fig.update_xaxes(scaleanchor="x4", row=1, col=2)  # Låser Topp-X til Side-X
+    # Rute 2,1 (Front): Horisontal = Bredde (Y), Vertikal = Dybde (Z)
+    fig.update_xaxes(range=[-y_limit, y_limit], row=2, col=1)
+    fig.update_yaxes(scaleanchor="x3", scaleratio=1, range=[z_limit, 0.05], row=2, col=1)
     
-    # KRAV 2: Samme høyde/dybde (Z) i Side og Front
-    fig.update_yaxes(scaleanchor="y4", row=2, col=1)  # Låser Front-Z (høyde) til Side-Z
-    
-    # KRAV 3: Samme bredde (Y) i Front og Topp
-    fig.update_xaxes(scaleanchor="y2", row=2, col=1)  # Låser Front-X (bredde) til Topp-Y (bredde)
+    # Rute 3,1 (Side): Horisontal = Lengde (X), Vertikal = Dybde (Z)
+    fig.update_xaxes(range=[-x_limit, x_limit], row=3, col=1)
+    fig.update_yaxes(scaleanchor="x4", scaleratio=1, range=[z_limit, 0.05], row=3, col=1)
 
-    # Forbann rutenett-skalering til å respektere låsingen vår
     fig.update_layout(height=650, template="plotly_white", margin=dict(l=15, r=15, t=40, b=15))
-    
     return fig
 
 
@@ -205,13 +207,14 @@ skrog_col1, skrog_col2, skrog_col3 = st.columns(3)
 
 with skrog_col1:
     st.subheader("Hovedskrog (Senter)")
-    fig_main = create_vessel_3x2_subplot(hull_mesh_main, prop_main, R_f_main, "Hovedskrog", is_main_hull=True)
+    # OPPDATERT KALL: Lagt til max_L_total og max_B_total til argumentene
+    fig_main = create_vessel_3x2_subplot(hull_mesh_main, prop_main, R_f_main, "Hovedskrog", max_L_total, max_B_total, is_main_hull=True)
     st.plotly_chart(fig_main, use_container_width=True)
 
 with skrog_col2:
     st.subheader("Sideskrog 1 (Styrbord)")
     if num_hulls > 1:
-        fig_side1 = create_vessel_3x2_subplot(hull_mesh_side, prop_side, R_f_side, "Sideskrog STB", is_main_hull=False)
+        fig_side1 = create_vessel_3x2_subplot(hull_mesh_side, prop_side, R_f_side, "Sideskrog STB", max_L_total, max_B_total, is_main_hull=False)
         st.plotly_chart(fig_side1, use_container_width=True)
     else:
         st.info("Deaktivert (Monohull)")
@@ -219,12 +222,8 @@ with skrog_col2:
 with skrog_col3:
     st.subheader("Sideskrog 2 (Babord)")
     if num_hulls > 2:
-        fig_side2 = create_vessel_3x2_subplot(hull_mesh_side, prop_side, R_f_side, "Sideskrog BB", is_main_hull=False)
+        fig_side2 = create_vessel_3x2_subplot(hull_mesh_side, prop_side, R_f_side, "Sideskrog BB", max_L_total, max_B_total, is_main_hull=False)
         st.plotly_chart(fig_side2, use_container_width=True)
-    elif num_hulls == 2:
-        st.info("Deaktivert (Katamaran)")
-    else:
-        st.info("Deaktivert (Monohull)")
 
 st.markdown("---")
 
